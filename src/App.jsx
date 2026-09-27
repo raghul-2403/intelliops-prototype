@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle,
   Clock,
   MapPin,
   Package,
+  Phone,
   RotateCcw,
+  Send,
   Thermometer,
   Users,
 } from "lucide-react";
@@ -19,6 +21,72 @@ import {
   YAxis,
 } from "recharts";
 import "./index.css";
+
+const drivers = [
+  {
+    id: "driver-1",
+    name: "Raghul",
+    initials: "RJ",
+    vehicle: "TN 09 AB 4521",
+    type: "Long-haul reefer",
+    phone: "+919159708095",
+    location: "11 km from Melur junction",
+  },
+  {
+    id: "driver-2",
+    name: "Niranjan",
+    initials: "N",
+    vehicle: "TN 58 CD 1187",
+    type: "Refrigerated van",
+    phone: "+918072970078",
+    location: "Near Tirumangalam bypass",
+  },
+  {
+    id: "driver-3",
+    name: "Prakash",
+    initials: "P",
+    vehicle: "TN 37 EF 7620",
+    type: "Cold-chain carrier",
+    phone: "+916381920030",
+    location: "8 km from Sivaganga road",
+  },
+  {
+    id: "driver-4",
+    name: "Nithish Barath",
+    initials: "NB",
+    vehicle: "TN 45 GH 3098",
+    type: "District distribution van",
+    phone: "+919843759696",
+    location: "Madurai district checkpoint",
+  },
+  {
+    id: "driver-5",
+    name: "Sabarish Krishnan",
+    initials: "SK",
+    vehicle: "TN 63 JK 8842",
+    type: "Last-mile vaccine carrier",
+    phone: "+918807087857",
+    location: "Near district store entrance",
+  },
+];
+
+function getDriverForDate(date) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return drivers[0];
+  }
+
+  const referenceDate = new Date("2026-09-27T00:00:00");
+  const daysDifference = Math.floor(
+    (referenceDate - parsedDate) / (1000 * 60 * 60 * 24)
+  );
+
+  const driverIndex =
+    ((daysDifference % drivers.length) + drivers.length) % drivers.length;
+
+  return drivers[driverIndex];
+}
 
 const historyData = {
   "2026-09-27": {
@@ -139,28 +207,169 @@ const recoveryOptions = [
   },
 ];
 
+function MeeraCredit() {
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    function updateScrollProgress() {
+      const section = document.querySelector(".meera-credit");
+
+      if (!section) {
+        return;
+      }
+
+      const sectionTop = section.getBoundingClientRect().top;
+      const sectionHeight = section.offsetHeight;
+      const viewportHeight = window.innerHeight;
+
+      const totalDistance = sectionHeight + viewportHeight;
+      const currentDistance = viewportHeight - sectionTop;
+      const progress = Math.min(
+        1,
+        Math.max(0, currentDistance / totalDistance)
+      );
+
+      setScrollProgress(progress);
+    }
+
+    updateScrollProgress();
+    window.addEventListener("scroll", updateScrollProgress, { passive: true });
+    window.addEventListener("resize", updateScrollProgress);
+
+    return () => {
+      window.removeEventListener("scroll", updateScrollProgress);
+      window.removeEventListener("resize", updateScrollProgress);
+    };
+  }, []);
+
+  const imageScale = 0.82 + scrollProgress * 0.18;
+  const imageRadius = 34 - scrollProgress * 16;
+  const imageOpacity = 0.72 + scrollProgress * 0.28;
+  const imageRotate = (0.5 - scrollProgress) * 2.5;
+
+  return (
+    <section
+      className="meera-credit"
+      style={{
+        "--meera-progress": scrollProgress,
+        "--meera-image-scale": imageScale,
+        "--meera-image-radius": `${imageRadius}px`,
+        "--meera-image-opacity": imageOpacity,
+        "--meera-image-rotate": `${imageRotate}deg`,
+      }}
+    >
+      <div className="meera-story-layout">
+        <div className="meera-photo-column">
+          <div className="meera-photo-sticky">
+            <div className="meera-photo-halo"></div>
+
+            <div className="meera-photo-frame">
+              <img
+                className="meera-photo"
+                src="/meera-raghavan.jpg"
+                alt="Meera Raghavan, cold-chain coordinator"
+              />
+
+              <div className="meera-photo-label">
+                Cold-chain coordinator
+              </div>
+            </div>
+
+            <div className="meera-scroll-caption">
+              <span className="meera-scroll-line"></span>
+              <span>
+                {scrollProgress < 0.35
+                  ? "A person behind the process"
+                  : scrollProgress < 0.75
+                  ? "The work behind every delivery"
+                  : "The mission behind IntelliOps"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="meera-credit-content">
+          <p className="eyebrow">THE PERSON BEHIND THE MISSION</p>
+
+          <h2>For Meera Raghavan</h2>
+
+          <p className="meera-role">
+            Cold-chain coordinator · Chennai · 9 years in Pharma Logistics
+          </p>
+
+          <p className="meera-quote">
+            “Everything she knows about which routes go wrong is in her head,
+            and in one notebook.”
+          </p>
+
+          <p className="meera-description">
+            Meera represents the coordinators who reconcile orders, temperature
+            readings, transport plans, and clinic sessions every day.
+          </p>
+
+          <p className="meera-description">
+            IntelliOps is built to give people like her earlier signals,
+            clearer choices, and more time to protect every consignment.
+          </p>
+
+          <div className="meera-stats">
+            <div>
+              <strong>400</strong>
+              <span>consignments/month</span>
+            </div>
+
+            <div>
+              <strong>260</strong>
+              <span>destinations</span>
+            </div>
+
+            <div>
+              <strong>1</strong>
+              <span>Mission : Protect every session</span>
+            </div>
+          </div>
+
+          <div className="meera-signature">
+            <span className="signature-line"></span>
+            <span>
+              <strong>With respect for the people who keep the chain moving.</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [screen, setScreen] = useState("dashboard");
+  const [darkMode, setDarkMode] = useState(false);
   const [selectedOption, setSelectedOption] = useState(null);
   const [approved, setApproved] = useState(false);
+  const [driverContacted, setDriverContacted] = useState(false);
+  const [driverAlertSent, setDriverAlertSent] = useState(false);
   const [selectedDate, setSelectedDate] = useState("2026-09-27");
   const [draftDate, setDraftDate] = useState("2026-09-27");
   const [simulationStarted, setSimulationStarted] = useState(false);
   const [agentMessages, setAgentMessages] = useState([]);
 
   function resetDemo() {
-    setScreen("dashboard");
-    setSelectedOption(null);
-    setApproved(false);
-    setSelectedDate("2026-09-27");
-    setDraftDate("2026-09-27");
-    setSimulationStarted(false);
-    setAgentMessages([]);
-  }
+  setScreen("dashboard");
+  setSelectedOption(null);
+  setApproved(false);
+  setDriverContacted(false);
+  setDriverAlertSent(false);
+  setSelectedDate("2026-09-27");
+  setDraftDate("2026-09-27");
+  setSimulationStarted(false);
+  setAgentMessages([]);
+}
 
   function applyDate() {
   if (draftDate) {
     setSelectedDate(draftDate);
+    setDriverContacted(false);
+    setDriverAlertSent(false);
   }
 }
 
@@ -190,7 +399,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${darkMode ? "dark-mode" : "light-mode"}`}>
       <header className="topbar">
         <div>
           <div className="brand">SAP IntelliOps</div>
@@ -198,13 +407,21 @@ function App() {
         </div>
 
         <div className="header-actions">
-          <span className="live-dot">● LIVE DEMO</span>
+         <span className="live-dot">● LIVE DEMO</span>
 
-          <button className="reset-button" onClick={resetDemo}>
-            <RotateCcw size={16} />
-            Reset
-          </button>
-        </div>
+        <button
+          className="theme-button"
+          onClick={() => setDarkMode((currentMode) => !currentMode)}
+          aria-label="Toggle dark mode"
+        >
+          {darkMode ? "☀ Light" : "☾ Dark"}
+        </button>
+
+      <button className="reset-button" onClick={resetDemo}>
+          <RotateCcw size={16} />
+          Reset
+      </button>
+      </div>
       </header>
 
       <main className="container">
@@ -233,11 +450,16 @@ function App() {
         )}
 
         {screen === "incident" && (
-          <Incident
-            onBack={() => setScreen("dashboard")}
-            onOpenRecovery={() => setScreen("recovery")}
-          />
-        )}
+         <Incident
+           selectedDate={selectedDate}
+           onBack={() => setScreen("dashboard")}
+           onOpenRecovery={() => setScreen("recovery")}
+           driverContacted={driverContacted}
+           setDriverContacted={setDriverContacted}
+           driverAlertSent={driverAlertSent}
+           setDriverAlertSent={setDriverAlertSent}
+         />
+)}
 
         {screen === "recovery" && (
           <Recovery
@@ -256,6 +478,8 @@ function App() {
             onBack={() => setScreen("dashboard")}
           />
         )}
+
+        <MeeraCredit />
       </main>
     </div>
   );
@@ -607,7 +831,30 @@ function StatCard({ icon, value, label, color }) {
   );
 }
 
-function Incident({ onBack, onOpenRecovery }) {
+function Incident({
+  selectedDate,
+  onBack,
+  onOpenRecovery,
+  driverContacted,
+  setDriverContacted,
+  driverAlertSent,
+  setDriverAlertSent,
+}) {
+  const driver = getDriverForDate(selectedDate);
+    
+  function sendWhatsAppAlert() {
+    const message =
+      "URGENT COLD-CHAIN ALERT: Consignment CN-24018 is at 9.2°C and rising. Please stop safely, check the reefer, and proceed to the nearest re-icing point.Please Contact the coordinator immediately.";
+
+    const whatsappUrl = `https://wa.me/${driver.phone.replace(
+      /[^0-9]/g,
+      ""
+    )}?text=${encodeURIComponent(message)}`;
+
+    window.open(whatsappUrl, "_blank");
+    setDriverAlertSent(true);
+  }
+  
   return (
     <>
       <button className="back-button" onClick={onBack}>
@@ -619,7 +866,10 @@ function Incident({ onBack, onOpenRecovery }) {
           <p className="eyebrow red-text">URGENT INCIDENT</p>
           <h1>CN-24018 — Chennai to Madurai</h1>
           <p className="muted">
-            Incident INC-2026-0418 · 12,000 doses · DTP / Hep-B vaccine
+              Incident INC-2026-0418 · 12,000 doses · DTP / Hep-B vaccine
+          </p>
+          <p className="muted">
+              Assigned driver: {driver.name} · {driver.vehicle}
           </p>
         </div>
         <span className="badge red-badge large-badge">
@@ -725,6 +975,70 @@ function Incident({ onBack, onOpenRecovery }) {
           <RouteStop label="14 clinics" />
         </div>
       </section>
+
+      <section className="driver-contact-card panel">
+  <div className="driver-contact-header">
+    <div>
+      <p className="eyebrow">URGENT FIELD ACTION</p>
+      <h2>Contact vehicle driver</h2>
+      <p className="muted">
+        Ask the driver to stop safely, verify the reefer, and proceed to the
+        nearest re-icing point.
+      </p>
+    </div>
+
+    <div className="driver-status">
+      <span className="green-dot"></span>
+      Driver on route
+    </div>
+  </div>
+
+  <div className="driver-details">
+    <div className="driver-avatar">{driver.initials}</div>
+
+    <div className="driver-info">
+      <strong>{driver.name}</strong>
+      <span>
+        Vehicle {driver.vehicle} · {driver.type}
+      </span>
+      <span>Last location: {driver.location}</span>
+    </div>
+
+    <div className="driver-actions">
+  <a
+    className="call-driver-button"
+    href={`tel:${driver.phone}`}
+    onClick={() => setDriverContacted(true)}
+  >
+    <Phone size={17} />
+    {driverContacted
+      ? "Call placed"
+      : `Call ${driver.name.split(" ")[0]}`}
+  </a>
+
+  <button
+    className="send-alert-button"
+    onClick={sendWhatsAppAlert}
+  >
+    <Send size={17} />
+    {driverAlertSent ? "WhatsApp opened" : "Send WhatsApp alert"}
+  </button>
+</div>
+</div>
+
+  {(driverContacted || driverAlertSent) && (
+    <div className="driver-action-result">
+      <CheckCircle size={18} />
+      <span>
+        {driverContacted && driverAlertSent
+          ? "Driver contacted and urgent instruction sent."
+          : driverContacted
+          ? "Call action recorded. Driver contact attempt started."
+          : "Urgent instruction sent to the driver."}
+      </span>
+    </div>
+  )}
+</section>
 
       <button className="large-primary-button" onClick={onOpenRecovery}>
         Open recovery simulator →
