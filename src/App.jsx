@@ -34,11 +34,11 @@ const drivers = [
   },
   {
     id: "driver-2",
-    name: "Niranjan",
-    initials: "N",
+    name: "Nithin Adhithya",
+    initials: "NA",
     vehicle: "TN 58 CD 1187",
     type: "Refrigerated van",
-    phone: "+918072970078",
+    phone: "+919363498553",
     location: "Near Tirumangalam bypass",
   },
   {
