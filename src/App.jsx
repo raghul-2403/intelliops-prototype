@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import LoginPage from "./LoginPage";
+import DriverDashboard from "./DriverDashboard";
+import { supabase } from "./lib/supabase";
 import {
   AlertTriangle,
   CheckCircle,
@@ -207,143 +210,17 @@ const recoveryOptions = [
   },
 ];
 
-function MeeraCredit() {
-  const [scrollProgress, setScrollProgress] = useState(0);
-
-  useEffect(() => {
-    function updateScrollProgress() {
-      const section = document.querySelector(".meera-credit");
-
-      if (!section) {
-        return;
-      }
-
-      const sectionTop = section.getBoundingClientRect().top;
-      const sectionHeight = section.offsetHeight;
-      const viewportHeight = window.innerHeight;
-
-      const totalDistance = sectionHeight + viewportHeight;
-      const currentDistance = viewportHeight - sectionTop;
-      const progress = Math.min(
-        1,
-        Math.max(0, currentDistance / totalDistance)
-      );
-
-      setScrollProgress(progress);
-    }
-
-    updateScrollProgress();
-    window.addEventListener("scroll", updateScrollProgress, { passive: true });
-    window.addEventListener("resize", updateScrollProgress);
-
-    return () => {
-      window.removeEventListener("scroll", updateScrollProgress);
-      window.removeEventListener("resize", updateScrollProgress);
-    };
-  }, []);
-
-  const imageScale = 0.82 + scrollProgress * 0.18;
-  const imageRadius = 34 - scrollProgress * 16;
-  const imageOpacity = 0.72 + scrollProgress * 0.28;
-  const imageRotate = (0.5 - scrollProgress) * 2.5;
-
-  return (
-    <section
-      className="meera-credit"
-      style={{
-        "--meera-progress": scrollProgress,
-        "--meera-image-scale": imageScale,
-        "--meera-image-radius": `${imageRadius}px`,
-        "--meera-image-opacity": imageOpacity,
-        "--meera-image-rotate": `${imageRotate}deg`,
-      }}
-    >
-      <div className="meera-story-layout">
-        <div className="meera-photo-column">
-          <div className="meera-photo-sticky">
-            <div className="meera-photo-halo"></div>
-
-            <div className="meera-photo-frame">
-              <img
-                className="meera-photo"
-                src="/meera-raghavan.jpg"
-                alt="Meera Raghavan, cold-chain coordinator"
-              />
-
-              <div className="meera-photo-label">
-                Cold-chain coordinator
-              </div>
-            </div>
-
-            <div className="meera-scroll-caption">
-              <span className="meera-scroll-line"></span>
-              <span>
-                {scrollProgress < 0.35
-                  ? "A person behind the process"
-                  : scrollProgress < 0.75
-                  ? "The work behind every delivery"
-                  : "The mission behind IntelliOps"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="meera-credit-content">
-          <p className="eyebrow">THE PERSON BEHIND THE MISSION</p>
-
-          <h2>For Meera Raghavan</h2>
-
-          <p className="meera-role">
-            Cold-chain coordinator · Chennai · 9 years in Pharma Logistics
-          </p>
-
-          <p className="meera-quote">
-            “Everything she knows about which routes go wrong is in her head,
-            and in one notebook.”
-          </p>
-
-          <p className="meera-description">
-            Meera represents the coordinators who reconcile orders, temperature
-            readings, transport plans, and clinic sessions every day.
-          </p>
-
-          <p className="meera-description">
-            IntelliOps is built to give people like her earlier signals,
-            clearer choices, and more time to protect every consignment.
-          </p>
-
-          <div className="meera-stats">
-            <div>
-              <strong>400</strong>
-              <span>consignments/month</span>
-            </div>
-
-            <div>
-              <strong>260</strong>
-              <span>destinations</span>
-            </div>
-
-            <div>
-              <strong>1</strong>
-              <span>Mission : Protect every session</span>
-            </div>
-          </div>
-
-          <div className="meera-signature">
-            <span className="signature-line"></span>
-            <span>
-              <strong>With respect for the people who keep the chain moving.</strong>
-            </span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [screen, setScreen] = useState("dashboard");
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+  const savedMode = localStorage.getItem("intelliops-theme");
+     if (savedMode === "light") return false;
+     return true;
+    });
   const [selectedOption, setSelectedOption] = useState(null);
   const [approved, setApproved] = useState(false);
   const [driverContacted, setDriverContacted] = useState(false);
@@ -352,6 +229,43 @@ function App() {
   const [draftDate, setDraftDate] = useState("2026-09-27");
   const [simulationStarted, setSimulationStarted] = useState(false);
   const [agentMessages, setAgentMessages] = useState([]);
+
+    useEffect(() => {
+    async function loadSession() {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      setSession(currentSession);
+
+      if (currentSession?.user) {
+        const { data: currentProfile } =
+          await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", currentSession.user.id)
+            .single();
+
+        setProfile(currentProfile);
+      }
+
+      setAuthLoading(false);
+    }
+
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event, currentSession) => {
+        setSession(currentSession);
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   function resetDemo() {
   setScreen("dashboard");
@@ -397,6 +311,36 @@ function App() {
       }, (index + 1) * 700);
     });
   }
+    
+  async function handleLogout() {
+  await supabase.auth.signOut({ scope: "local" });
+  setSession(null);
+  setProfile(null);
+  setScreen("dashboard");
+}
+
+    if (authLoading) {
+    return <div className="loading-screen">Loading...</div>;
+  }
+
+    if (!session || !profile) {
+    return (
+      <LoginPage
+        onLogin={(loggedInProfile) => {
+          setProfile(loggedInProfile);
+        }}
+      />
+    );
+  }
+
+  if (profile.role === "driver") {
+    return (
+      <DriverDashboard
+        profile={profile}
+        onLogout={handleLogout}
+      />
+    );
+  }
 
   return (
     <div className={`app ${darkMode ? "dark-mode" : "light-mode"}`}>
@@ -407,11 +351,22 @@ function App() {
         </div>
 
         <div className="header-actions">
-         <span className="live-dot">● LIVE DEMO</span>
+         <span className="live-dot">● LIVE</span>
 
         <button
           className="theme-button"
-          onClick={() => setDarkMode((currentMode) => !currentMode)}
+               onClick={() => {
+               setDarkMode((currentMode) => {
+               const nextMode = !currentMode;
+
+              localStorage.setItem(
+              "intelliops-theme",
+               nextMode ? "dark" : "light"
+              );
+
+               return nextMode;
+              });
+             }}
           aria-label="Toggle dark mode"
         >
           {darkMode ? "☀ Light" : "☾ Dark"}
@@ -421,6 +376,12 @@ function App() {
           <RotateCcw size={16} />
           Reset
       </button>
+          <button
+              className="logout-button"
+              onClick={handleLogout}
+    >
+      Sign out
+    </button>
       </div>
       </header>
 
@@ -479,7 +440,7 @@ function App() {
           />
         )}
 
-        <MeeraCredit />
+        
       </main>
     </div>
   );
