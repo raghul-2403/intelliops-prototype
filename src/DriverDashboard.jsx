@@ -22,20 +22,34 @@ export default function DriverDashboard({
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState(null);
   const [weather, setWeather] = useState(null);
-  const [locationStatus, setLocationStatus] = useState("Not shared");
+  const [locationStatus, setLocationStatus] =
+    useState("Not shared");
   const [coordinator, setCoordinator] = useState(null);
 
   useEffect(() => {
+    if (!profile?.id) {
+      setLoading(false);
+      return;
+    }
+
     async function loadDriverData() {
-      const { data: shipmentData } = await supabase
-        .from("shipments")
-        .select("*")
-        .eq("driver_id", profile.id)
-        .maybeSingle();
+      const { data: shipmentData, error: shipmentError } =
+        await supabase
+          .from("shipments")
+          .select("*")
+          .eq("driver_id", profile.id)
+          .maybeSingle();
+
+      if (shipmentError) {
+        console.error(
+          "Shipment loading failed:",
+          shipmentError
+        );
+      }
 
       const {
-      data: coordinatorData,
-      error: coordinatorError,
+        data: coordinatorData,
+        error: coordinatorError,
       } = await supabase
         .from("profiles")
         .select("full_name, phone")
@@ -43,12 +57,19 @@ export default function DriverDashboard({
         .limit(1)
         .maybeSingle();
 
-        console.log("Coordinator data:", coordinatorData);
-        console.log("Coordinator error:", coordinatorError);
+      if (coordinatorError) {
+        console.error(
+          "Coordinator loading failed:",
+          coordinatorError
+        );
+      }
 
-        setCoordinator(coordinatorData);
+      setCoordinator(coordinatorData);
 
-      const { data: alertData } = await supabase
+      const {
+        data: alertData,
+        error: alertError,
+      } = await supabase
         .from("recovery_instructions")
         .select("*")
         .eq("driver_id", profile.id)
@@ -60,6 +81,13 @@ export default function DriverDashboard({
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      if (alertError) {
+        console.error(
+          "Recovery alert loading failed:",
+          alertError
+        );
+      }
 
       setShipment(shipmentData);
       setRecoveryAlert(alertData);
@@ -91,10 +119,12 @@ export default function DriverDashboard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile.id]);
+  }, [profile?.id]);
 
   async function acknowledgeRecovery() {
-    if (!recoveryAlert) return;
+    if (!recoveryAlert?.id) {
+      return;
+    }
 
     const { data, error } = await supabase
       .from("recovery_instructions")
@@ -106,9 +136,15 @@ export default function DriverDashboard({
       .select()
       .single();
 
-    if (!error) {
-      setRecoveryAlert(data);
+    if (error) {
+      console.error(
+        "Could not acknowledge recovery:",
+        error
+      );
+      return;
     }
+
+    setRecoveryAlert(data);
   }
 
   async function shareLocation() {
@@ -140,7 +176,8 @@ export default function DriverDashboard({
             temperature: data.current.temperature_2m,
             humidity: data.current.relative_humidity_2m,
           });
-        } catch {
+        } catch (error) {
+          console.error("Weather loading failed:", error);
           setWeather(null);
         }
 
@@ -158,24 +195,37 @@ export default function DriverDashboard({
   }
 
   function openWhatsApp() {
-  if (!coordinator?.phone) {
-    alert("Coordinator phone number is not available.");
-    return;
+    if (!coordinator?.phone) {
+      alert("Coordinator phone number is not available.");
+      return;
+    }
+
+    const phone = coordinator.phone.replace(
+      /[^0-9]/g,
+      ""
+    );
+
+    const message =
+      `Hello ${coordinator.full_name}, this is ` +
+      `${profile?.full_name ?? "the driver"}. ` +
+      `I am contacting you about shipment ` +
+      `${shipment?.shipment_number ?? ""}.`;
+
+    window.open(
+      `https://wa.me/${phone}?text=${encodeURIComponent(
+        message
+      )}`,
+      "_blank"
+    );
   }
 
-  const phone = coordinator.phone.replace(/[^0-9]/g, "");
-
-  const message =
-    `Hello ${coordinator.full_name}, this is ${profile.full_name}. ` +
-    `I am contacting you about shipment ${
-      shipment?.shipment_number || ""
-    }.`;
-
-  window.open(
-    `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
-    "_blank"
-  );
-}
+  if (!profile?.id) {
+    return (
+      <main className="driver-loading">
+        Driver profile is not available.
+      </main>
+    );
+  }
 
   if (loading) {
     return (
@@ -185,7 +235,8 @@ export default function DriverDashboard({
     );
   }
 
-  const isCritical = shipment?.status === "ACTION_REQUIRED";
+  const isCritical =
+    shipment?.status === "ACTION_REQUIRED";
 
   return (
     <main className="driver-shell">
@@ -219,7 +270,8 @@ export default function DriverDashboard({
             <p className="driver-kicker">GOOD MORNING</p>
             <h1>{profile.full_name}</h1>
             <p>
-              Your assigned vehicle and live instructions appear here.
+              Your assigned vehicle and live instructions appear
+              here.
             </p>
           </div>
 
@@ -254,9 +306,13 @@ export default function DriverDashboard({
               <Thermometer size={20} />
             </div>
             <span>Shipment temperature</span>
-            <strong>{shipment?.temperature ?? "--"}°C</strong>
+            <strong>
+              {shipment?.temperature ?? "--"}°C
+            </strong>
             <small>
-              {isCritical ? "Above safe range" : "Within safe range"}
+              {isCritical
+                ? "Above safe range"
+                : "Within safe range"}
             </small>
           </article>
 
@@ -265,7 +321,9 @@ export default function DriverDashboard({
               <Package size={20} />
             </div>
             <span>Consignment</span>
-            <strong>{shipment?.shipment_number ?? "--"}</strong>
+            <strong>
+              {shipment?.shipment_number ?? "--"}
+            </strong>
             <small>{shipment?.status ?? "No status"}</small>
           </article>
 
@@ -303,7 +361,9 @@ export default function DriverDashboard({
                 <span className="route-dot origin" />
                 <div>
                   <small>ORIGIN</small>
-                  <strong>{shipment?.origin ?? "Madurai"}</strong>
+                  <strong>
+                    {shipment?.origin ?? "Madurai"}
+                  </strong>
                 </div>
               </div>
 
@@ -357,7 +417,9 @@ export default function DriverDashboard({
               <div className="weather-reading">
                 <strong>{weather.temperature}°C</strong>
                 <span>Humidity {weather.humidity}%</span>
-                <small>Based on your shared GPS location</small>
+                <small>
+                  Based on your shared GPS location
+                </small>
               </div>
             ) : (
               <div className="weather-empty">
@@ -373,7 +435,9 @@ export default function DriverDashboard({
         <section className="recovery-section">
           <div className="section-heading">
             <div>
-              <p className="driver-kicker">COORDINATOR INSTRUCTIONS</p>
+              <p className="driver-kicker">
+                COORDINATOR INSTRUCTIONS
+              </p>
               <h2>Recovery actions</h2>
             </div>
             <span className="secure-label">
@@ -444,7 +508,9 @@ export default function DriverDashboard({
             <div>
               <p className="driver-kicker">NEED HELP?</p>
               <h3>Contact your coordinator</h3>
-              <p>Meera Raghavan is monitoring this shipment.</p>
+              <p>
+                Meera Raghavan is monitoring this shipment.
+              </p>
             </div>
 
             <button
