@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import LoginPage from "./LoginPage";
 import DriverDashboard from "./DriverDashboard";
 import { supabase } from "./lib/supabase";
+import LiveMap from "./LiveMap";
 import {
   AlertTriangle,
   CheckCircle,
@@ -73,6 +74,16 @@ const drivers = [
   },
 ];
 
+function getTodayDate() {
+  const today = new Date();
+
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 function getDriverForDate(date) {
   const parsedDate = new Date(`${date}T00:00:00`);
 
@@ -81,12 +92,15 @@ function getDriverForDate(date) {
   }
 
   const referenceDate = new Date("2026-09-27T00:00:00");
+
   const daysDifference = Math.floor(
-    (referenceDate - parsedDate) / (1000 * 60 * 60 * 24)
+    (parsedDate - referenceDate) /
+      (1000 * 60 * 60 * 24)
   );
 
   const driverIndex =
-    ((daysDifference % drivers.length) + drivers.length) % drivers.length;
+    ((daysDifference % drivers.length) + drivers.length) %
+    drivers.length;
 
   return drivers[driverIndex];
 }
@@ -210,6 +224,39 @@ const recoveryOptions = [
   },
 ];
 
+const driverIdByLocalId = {
+  "driver-1":
+    "98f6ab92-f576-4204-9147-0ffe3568119f",
+
+  "driver-2":
+    "ef947363-3375-4bbd-ae22-4493659589ef",
+
+  "driver-3":
+    "565c5093-e106-4989-a74f-a57de561615d",
+
+  "driver-4":
+    "75157a54-8579-49d3-a3a8-07e69b0bd8b2",
+
+  "driver-5":
+    "df138093-7f4b-4861-8980-e3d8c924e53a",
+};
+
+const shipmentByDriver = {
+  "98f6ab92-f576-4204-9147-0ffe3568119f":
+    "a93bf90d-825e-469c-9df0-9c4ca28b91b7",
+
+  "ef947363-3375-4bbd-ae22-4493659589ef":
+    "efbd4c6f-d20b-4252-872f-5631a9a25d8c",
+
+  "565c5093-e106-4989-a74f-a57de561615d":
+    "3f744479-f440-4b8c-b1d1-fce5b6948b8d",
+
+  "75157a54-8579-49d3-a3a8-07e69b0bd8b2":
+    "aca45fe1-5dfb-41bd-8911-651ae5748e1e",
+
+  "df138093-7f4b-4861-8980-e3d8c924e53a":
+    "87b68c3b-c876-49a9-927b-c8e29578ff9d",
+};
 
 function App() {
   const [session, setSession] = useState(null);
@@ -225,11 +272,92 @@ function App() {
   const [approved, setApproved] = useState(false);
   const [driverContacted, setDriverContacted] = useState(false);
   const [driverAlertSent, setDriverAlertSent] = useState(false);
-  const [selectedDate, setSelectedDate] = useState("2026-09-27");
-  const [draftDate, setDraftDate] = useState("2026-09-27");
+  const todayDate = getTodayDate();
+
+  const [selectedDate, setSelectedDate] =
+  useState(todayDate);
+
+  const [draftDate, setDraftDate] =
+  useState(todayDate);
+
   const [simulationStarted, setSimulationStarted] = useState(false);
   const [agentMessages, setAgentMessages] = useState([]);
+  const [acknowledgementMessage, setAcknowledgementMessage] =
+  useState(null);
+  const [isEnteringApp, setIsEnteringApp] = useState(false);
+  const [sharedShipment, setSharedShipment] = useState(null);
+  const [meeraWeather, setMeeraWeather] = useState(null);
+  const [mapShipment, setMapShipment] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
+    useEffect(() => {
+  if (profile?.role !== "coordinator") {
+    return undefined;
+  }
+
+  let active = true;
+
+  async function loadMapShipment() {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("*")
+      .not("location_shared_at", "is", null)
+      .order("location_shared_at", {
+        ascending: false,
+        nullsFirst: false,
+      })
+      .limit(1);
+
+    if (error) {
+      console.error("Map shipment loading failed:", error);
+      return;
+    }
+
+    if (active) {
+      setMapShipment(data?.[0] ?? null);
+    }
+  }
+
+  loadMapShipment();
+
+  const channel = supabase
+    .channel("live-map-shipment-updates")
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "shipments",
+      },
+      (payload) => {
+        const updatedShipment = payload.new;
+
+        if (
+          updatedShipment.current_latitude == null ||
+          updatedShipment.current_longitude == null
+        ) {
+          return;
+        }
+
+        console.log("Live map received shipment update:", updatedShipment);
+
+        setMapShipment(updatedShipment);
+      }
+    )
+    .subscribe((status, error) => {
+      console.log("Live map Realtime status:", status);
+
+      if (error) {
+        console.error("Live map Realtime error:", error);
+      }
+    });
+
+  return () => {
+    active = false;
+    supabase.removeChannel(channel);
+  };
+}, [profile?.role]);
+    
     useEffect(() => {
     async function loadSession() {
       const {
@@ -239,14 +367,16 @@ function App() {
       setSession(currentSession);
 
       if (currentSession?.user) {
-        const { data: currentProfile } =
-          await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", currentSession.user.id)
-            .single();
+       const {
+              data: currentProfile,
+              error: profileError,
+              } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", currentSession.user.id)
+              .single();
 
-        setProfile(currentProfile);
+              setProfile(currentProfile);
       }
 
       setAuthLoading(false);
@@ -267,14 +397,200 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+  const channel = supabase
+    .channel("coordinator-recovery-updates")
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "recovery_instructions",
+      },
+      (payload) => {
+        if (payload.new.status === "ACKNOWLEDGED") {
+          setAcknowledgementMessage(payload.new);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, []);
+
+  useEffect(() => {
+  if (profile?.role !== "coordinator") {
+    return undefined;
+  }
+
+  async function loadDriverWeather() {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select(`
+        id,
+        shipment_number,
+        driver_id,
+        current_latitude,
+        current_longitude,
+        location_accuracy,
+        location_shared_at,
+        current_temperature,
+        current_humidity,
+        weather_updated_at
+      `)
+      .not("current_temperature", "is", null)
+      .not("current_humidity", "is", null)
+      .order("location_shared_at", {
+        ascending: false,
+        nullsFirst: false,
+      })
+      .limit(1);
+
+    if (error) {
+      console.error("Meera weather query failed:", error);
+      return;
+    }
+
+    const latestShipment = data?.[0] ?? null;
+
+    console.log("Meera weather row:", latestShipment);
+
+    setSharedShipment(latestShipment);
+
+    if (latestShipment) {
+      setMeeraWeather({
+        temperature: latestShipment.current_temperature,
+        humidity: latestShipment.current_humidity,
+      });
+    } else {
+      setMeeraWeather(null);
+    }
+  }
+
+  loadDriverWeather();
+
+  const channel = supabase
+    .channel("meera-driver-weather")
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "shipments",
+      },
+      (payload) => {
+        const updatedShipment = payload.new;
+
+        if (
+          updatedShipment.current_temperature == null ||
+          updatedShipment.current_humidity == null
+        ) {
+          return;
+        }
+
+        console.log("Meera received weather update:", updatedShipment);
+
+        setSharedShipment(updatedShipment);
+        setMeeraWeather({
+          temperature: updatedShipment.current_temperature,
+          humidity: updatedShipment.current_humidity,
+        });
+      }
+    )
+    .subscribe((status) => {
+      console.log("Meera weather realtime status:", status);
+    });
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [profile?.role]);
+
+  async function approveRecovery() {
+  if (!selectedOption) {
+    return;
+  }
+
+  const assignedDriver = getDriverForDate(selectedDate);
+
+  const activeDriverId =
+    driverIdByLocalId[assignedDriver.id];
+
+  const shipmentId =
+    shipmentByDriver[activeDriverId];
+
+  if (!activeDriverId || !shipmentId) {
+    alert("No driver or shipment is assigned for this date.");
+    return;
+  }
+
+  const selectedRecovery = recoveryOptions.find(
+    (option) => option.id === selectedOption
+  );
+
+  if (!selectedRecovery) {
+    return;
+  }
+
+  const instruction =
+    selectedRecovery.id === "DIVERT_REICE"
+      ? "Divert to the nearest cold-storage facility and re-ice the shipment."
+      : selectedRecovery.name;
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    alert("Please sign in before approving recovery.");
+    return;
+  }
+
+  const { error } = await supabase
+    .from("recovery_instructions")
+    .insert({
+      driver_id: activeDriverId,
+      shipment_id: shipmentId,
+      instruction,
+      status: "SENT",
+      created_by: user.id,
+    });
+
+  if (error) {
+    console.error("SUPABASE INSERT ERROR", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+
+    alert(
+      `Supabase error\n\n` +
+        `Code: ${error.code ?? "none"}\n` +
+        `Message: ${error.message ?? "none"}\n` +
+        `Details: ${error.details ?? "none"}\n` +
+        `Hint: ${error.hint ?? "none"}`
+    );
+
+    return;
+  }
+
+  setApproved(true);
+}
+
   function resetDemo() {
+  const todayDate = getTodayDate();
+
   setScreen("dashboard");
   setSelectedOption(null);
   setApproved(false);
   setDriverContacted(false);
   setDriverAlertSent(false);
-  setSelectedDate("2026-09-27");
-  setDraftDate("2026-09-27");
+  setSelectedDate(todayDate);
+  setDraftDate(todayDate);
   setSimulationStarted(false);
   setAgentMessages([]);
 }
@@ -322,16 +638,21 @@ function App() {
     if (authLoading) {
     return <div className="loading-screen">Loading...</div>;
   }
+    if (!session || !profile || isEnteringApp) {
+  return (
+    <LoginPage
+      isEnteringApp={isEnteringApp}
+      onLogin={(loggedInProfile) => {
+        setIsEnteringApp(true);
 
-    if (!session || !profile) {
-    return (
-      <LoginPage
-        onLogin={(loggedInProfile) => {
+        setTimeout(() => {
           setProfile(loggedInProfile);
-        }}
-      />
-    );
-  }
+          setIsEnteringApp(false);
+        }, 900);
+      }}
+    />
+  );
+}
 
   if (profile.role === "driver") {
     return (
@@ -343,8 +664,47 @@ function App() {
   }
 
   return (
-    <div className={`app ${darkMode ? "dark-mode" : "light-mode"}`}>
-      <header className="topbar">
+  <div
+    className={`app ${
+      darkMode ? "dark-mode" : "light-mode"
+    } ${isEnteringApp ? "app-entering" : "app-visible"}`}
+  >
+    <button
+      type="button"
+      className="menu-toggle"
+      onClick={() => setMenuOpen((current) => !current)}
+      aria-label="Open navigation menu"
+    >
+      <span />
+      <span />
+      <span />
+    </button>
+
+    {menuOpen && (
+      <div className="app-menu">
+        <button
+          type="button"
+          onClick={() => {
+            setScreen("dashboard");
+            setMenuOpen(false);
+          }}
+        >
+          Dashboard
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setScreen("map");
+            setMenuOpen(false);
+          }}
+        >
+          Live map
+        </button>
+      </div>
+    )}
+
+    <header className="topbar">
         <div>
           <div className="brand">SAP IntelliOps</div>
           <div className="subtitle">Cold Chain Guardian</div>
@@ -386,62 +746,112 @@ function App() {
       </header>
 
       <main className="container">
+        {acknowledgementMessage && (
+          <div className="success-banner">
+            <CheckCircle size={24} />
+            <div>
+            <strong>Driver acknowledged the recovery instruction</strong>
+            <p>
+            The driver has received and acknowledged the approved action.
+            </p>
+      </div>
+    </div>
+)}
         {screen === "dashboard" && (
-          <Dashboard
-            onOpenIncident={() => setScreen("incident")}
-            onOpenWatch={() => setScreen("history")}
-            onSimulate={simulateDisruption}
-            simulationStarted={simulationStarted}
-            agentMessages={agentMessages}
-            selectedDate={selectedDate}
-            draftDate={draftDate}
-            setDraftDate={setDraftDate}
-            applyDate={applyDate}
-/>
-        )}
+  <ScreenTransition screenKey="dashboard">
+    <Dashboard
+       onOpenIncident={() => setScreen("incident")}
+       onOpenWatch={() => setScreen("history")}
+       onSimulate={simulateDisruption}
+       simulationStarted={simulationStarted}
+       agentMessages={agentMessages}
+       selectedDate={selectedDate}
+      draftDate={draftDate}
+      setDraftDate={setDraftDate}
+      applyDate={applyDate}
+      sharedShipment={sharedShipment}
+      meeraWeather={meeraWeather}
+    />
+  </ScreenTransition>
+)}
 
         {screen === "history" && (
-          <History
-            selectedDate={selectedDate}
-            draftDate={draftDate}
-            setDraftDate={setDraftDate}
-            applyDate={applyDate}
-            onBack={() => setScreen("dashboard")}
-/>
-        )}
+  <ScreenTransition screenKey="history">
+    <History
+      selectedDate={selectedDate}
+      draftDate={draftDate}
+      setDraftDate={setDraftDate}
+      applyDate={applyDate}
+      onBack={() => setScreen("dashboard")}
+    />
+  </ScreenTransition>
+)}
 
         {screen === "incident" && (
-         <Incident
-           selectedDate={selectedDate}
-           onBack={() => setScreen("dashboard")}
-           onOpenRecovery={() => setScreen("recovery")}
-           driverContacted={driverContacted}
-           setDriverContacted={setDriverContacted}
-           driverAlertSent={driverAlertSent}
-           setDriverAlertSent={setDriverAlertSent}
-         />
+  <ScreenTransition screenKey="incident">
+    <Incident
+      selectedDate={selectedDate}
+      onBack={() => setScreen("dashboard")}
+      onOpenRecovery={() => setScreen("recovery")}
+      driverContacted={driverContacted}
+      setDriverContacted={setDriverContacted}
+      driverAlertSent={driverAlertSent}
+      setDriverAlertSent={setDriverAlertSent}
+    />
+  </ScreenTransition>
+)}
+
+        {screen === "map" && (
+  <ScreenTransition screenKey="map">
+    <div className="map-screen">
+      <button
+        type="button"
+        className="back-button"
+        onClick={() => setScreen("dashboard")}
+      >
+        ← Back to cockpit
+      </button>
+
+      <LiveMap shipment={mapShipment} />
+    </div>
+  </ScreenTransition>
 )}
 
         {screen === "recovery" && (
-          <Recovery
-            selectedOption={selectedOption}
-            setSelectedOption={setSelectedOption}
-            approved={approved}
-            onBack={() => setScreen("incident")}
-            onApprove={() => setApproved(true)}
-            onEvidence={() => setScreen("evidence")}
-          />
-        )}
+  <ScreenTransition screenKey="recovery">
+    <Recovery
+      selectedOption={selectedOption}
+      setSelectedOption={setSelectedOption}
+      approved={approved}
+      onBack={() => setScreen("incident")}
+      onApprove={approveRecovery}
+      onEvidence={() => setScreen("evidence")}
+    />
+  </ScreenTransition>
+)}
 
         {screen === "evidence" && (
-          <Evidence
-            selectedOption={selectedOption}
-            onBack={() => setScreen("dashboard")}
-          />
-        )}
+  <ScreenTransition screenKey="evidence">
+    <Evidence
+      selectedOption={selectedOption}
+      onBack={() => setScreen("dashboard")}
+    />
+  </ScreenTransition>
+)}
 
         
       </main>
+    </div>
+  );
+}
+
+function ScreenTransition({ children, screenKey }) {
+  return (
+    <div
+      key={screenKey}
+      className="screen-transition"
+    >
+      {children}
     </div>
   );
 }
@@ -456,6 +866,8 @@ function Dashboard({
   draftDate,
   setDraftDate,
   applyDate,
+  sharedShipment,
+  meeraWeather,
 }) {
   const selectedHistory = getHistoryForDate(selectedDate);
 
@@ -623,6 +1035,47 @@ function Dashboard({
             </div>
           </div>
         </div>
+      </section>
+
+          <section className="content-grid">
+        <article className="panel network-panel meera-weather-card">
+          <div className="panel-title">
+            <div>
+              <p className="eyebrow">EXTERNAL WEATHER</p>
+              <h2>Local conditions</h2>
+            </div>
+
+            <span className="meera-weather-symbol">☼</span>
+          </div>
+
+          {meeraWeather?.temperature !== null &&
+          meeraWeather?.temperature !== undefined ? (
+            <div className="meera-weather-reading">
+              <strong>{meeraWeather.temperature}°C</strong>
+              <span>Humidity {meeraWeather.humidity}%</span>
+
+              <small>
+                Based on the driver&apos;s shared GPS location
+              </small>
+
+              {sharedShipment?.location_shared_at && (
+                <small>
+                  Updated{" "}
+                  {new Date(
+                    sharedShipment.location_shared_at
+                  ).toLocaleTimeString()}
+                </small>
+              )}
+            </div>
+          ) : (
+            <div className="meera-weather-empty">
+              <p>Waiting for driver location</p>
+              <span>
+                Weather will appear after the driver shares GPS location.
+              </span>
+            </div>
+          )}
+        </article>
       </section>
 
       {simulationStarted && <AgentActivity messages={agentMessages} />}

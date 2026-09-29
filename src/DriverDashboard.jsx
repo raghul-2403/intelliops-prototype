@@ -13,44 +13,41 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
-export default function DriverDashboard({
-  profile,
-  onLogout,
-}) {
+export default function DriverDashboard({ profile, onLogout }) {
   const [shipment, setShipment] = useState(null);
   const [recoveryAlert, setRecoveryAlert] = useState(null);
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState(null);
   const [weather, setWeather] = useState(null);
-  const [locationStatus, setLocationStatus] =
-    useState("Not shared");
+  const [locationStatus, setLocationStatus] = useState("Not shared");
+  const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [coordinator, setCoordinator] = useState(null);
 
   useEffect(() => {
     if (!profile?.id) {
       setLoading(false);
-      return;
+      return undefined;
     }
 
     async function loadDriverData() {
-      const { data: shipmentData, error: shipmentError } =
-        await supabase
-          .from("shipments")
-          .select("*")
-          .eq("driver_id", profile.id)
-          .maybeSingle();
+      const { data: shipmentRows, error: shipmentError } = await supabase
+       .from("shipments")
+       .select("*")
+       .eq("driver_id", profile.id)
+       .limit(1);
 
-      if (shipmentError) {
-        console.error(
-          "Shipment loading failed:",
-          shipmentError
-        );
-      }
+    if (shipmentError) {
+      console.error("Shipment loading failed:", shipmentError);
+    }
 
-      const {
-        data: coordinatorData,
-        error: coordinatorError,
-      } = await supabase
+    const shipmentData = shipmentRows?.[0] ?? null;
+
+    console.log("Profile ID used:", profile.id);
+    console.log("Shipment rows returned:", shipmentRows);
+    console.log("Shipment selected:", shipmentData);
+      
+
+      const { data: coordinatorData, error: coordinatorError } = await supabase
         .from("profiles")
         .select("full_name, phone")
         .eq("role", "coordinator")
@@ -58,38 +55,24 @@ export default function DriverDashboard({
         .maybeSingle();
 
       if (coordinatorError) {
-        console.error(
-          "Coordinator loading failed:",
-          coordinatorError
-        );
+        console.error("Coordinator loading failed:", coordinatorError);
       }
 
-      setCoordinator(coordinatorData);
-
-      const {
-        data: alertData,
-        error: alertError,
-      } = await supabase
+      const { data: alertData, error: alertError } = await supabase
         .from("recovery_instructions")
         .select("*")
         .eq("driver_id", profile.id)
-        .in("status", [
-          "SENT",
-          "ACKNOWLEDGED",
-          "IN_PROGRESS",
-        ])
+        .in("status", ["SENT", "ACKNOWLEDGED", "IN_PROGRESS"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (alertError) {
-        console.error(
-          "Recovery alert loading failed:",
-          alertError
-        );
+        console.error("Recovery alert loading failed:", alertError);
       }
 
       setShipment(shipmentData);
+      setCoordinator(coordinatorData);
       setRecoveryAlert(alertData);
       setLoading(false);
     }
@@ -122,9 +105,7 @@ export default function DriverDashboard({
   }, [profile?.id]);
 
   async function acknowledgeRecovery() {
-    if (!recoveryAlert?.id) {
-      return;
-    }
+    if (!recoveryAlert?.id) return;
 
     const { data, error } = await supabase
       .from("recovery_instructions")
@@ -137,17 +118,20 @@ export default function DriverDashboard({
       .single();
 
     if (error) {
-      console.error(
-        "Could not acknowledge recovery:",
-        error
-      );
+      console.error("Could not acknowledge recovery:", error);
       return;
     }
 
     setRecoveryAlert(data);
   }
 
-  async function shareLocation() {
+  function shareLocation() {
+    setShowLocationConfirm(true);
+  }
+
+  function confirmShareLocation() {
+    setShowLocationConfirm(false);
+
     if (!navigator.geolocation) {
       setLocationStatus("GPS unavailable");
       return;
@@ -156,36 +140,8 @@ export default function DriverDashboard({
     setLocationStatus("Finding location...");
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const nextLocation = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: Math.round(position.coords.accuracy),
-        };
-
-        setLocation(nextLocation);
-
-        try {
-          const response = await fetch(
-            `https://api.open-meteo.com/v1/forecast?latitude=${nextLocation.latitude}&longitude=${nextLocation.longitude}&current=temperature_2m,relative_humidity_2m&timezone=auto`
-          );
-
-          const data = await response.json();
-
-          setWeather({
-            temperature: data.current.temperature_2m,
-            humidity: data.current.relative_humidity_2m,
-          });
-        } catch (error) {
-          console.error("Weather loading failed:", error);
-          setWeather(null);
-        }
-
-        setLocationStatus("Location shared just now");
-      },
-      () => {
-        setLocationStatus("Location permission denied");
-      },
+      handleLocationSuccess,
+      handleLocationError,
       {
         enableHighAccuracy: true,
         maximumAge: 10000,
@@ -194,17 +150,102 @@ export default function DriverDashboard({
     );
   }
 
+  async function handleLocationSuccess(position) {
+  const nextLocation = {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: Math.round(position.coords.accuracy),
+  };
+
+  setLocation(nextLocation);
+
+  if (!shipment?.id) {
+    console.error("Shipment ID is missing:", shipment);
+    setLocationStatus("Shipment not found");
+    return;
+  }
+
+  try {
+    const weatherResponse = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${nextLocation.latitude}&longitude=${nextLocation.longitude}&current=temperature_2m,relative_humidity_2m&timezone=auto`
+    );
+
+    if (!weatherResponse.ok) {
+      throw new Error(
+        `Weather request failed with status ${weatherResponse.status}`
+      );
+    }
+
+    const weatherData = await weatherResponse.json();
+
+    const nextWeather = {
+      temperature: weatherData.current.temperature_2m,
+      humidity: weatherData.current.relative_humidity_2m,
+    };
+
+    setWeather(nextWeather);
+
+    const sharedAt = new Date().toISOString();
+
+    const updatePayload = {
+      current_latitude: nextLocation.latitude,
+      current_longitude: nextLocation.longitude,
+      location_accuracy: nextLocation.accuracy,
+      location_shared_at: sharedAt,
+      current_temperature: nextWeather.temperature,
+      current_humidity: nextWeather.humidity,
+      weather_updated_at: sharedAt,
+      tracking_status: "LIVE",
+      last_seen_at: sharedAt,
+      last_seen_status: "GPS_CONNECTED",
+};
+
+    console.log("Updating shipment:", shipment.id);
+    console.log("Update payload:", updatePayload);
+
+    const { data: updatedShipment, error } = await supabase
+      .from("shipments")
+      .update(updatePayload)
+      .eq("id", shipment.id)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error("Supabase shipment update failed:", error);
+      setLocationStatus(`Save failed: ${error.message}`);
+      return;
+    }
+
+    console.log("Shipment updated successfully:", updatedShipment);
+
+    setShipment(updatedShipment);
+    setLocationStatus("Location shared just now");
+  } catch (error) {
+    console.error("GPS/weather save failed:", error);
+    setWeather(null);
+    setLocationStatus("Could not share location");
+  }
+}
+
+  function handleLocationError(error) {
+    console.error("Location loading failed:", error);
+
+    if (error.code === error.PERMISSION_DENIED) {
+      setLocationStatus("Location permission denied");
+    } else if (error.code === error.TIMEOUT) {
+      setLocationStatus("GPS request timed out");
+    } else {
+      setLocationStatus("Could not get location");
+    }
+  }
+
   function openWhatsApp() {
     if (!coordinator?.phone) {
       alert("Coordinator phone number is not available.");
       return;
     }
 
-    const phone = coordinator.phone.replace(
-      /[^0-9]/g,
-      ""
-    );
-
+    const phone = coordinator.phone.replace(/[^0-9]/g, "");
     const message =
       `Hello ${coordinator.full_name}, this is ` +
       `${profile?.full_name ?? "the driver"}. ` +
@@ -212,10 +253,9 @@ export default function DriverDashboard({
       `${shipment?.shipment_number ?? ""}.`;
 
     window.open(
-      `https://wa.me/${phone}?text=${encodeURIComponent(
-        message
-      )}`,
-      "_blank"
+      `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+      "_blank",
+      "noopener,noreferrer"
     );
   }
 
@@ -228,18 +268,61 @@ export default function DriverDashboard({
   }
 
   if (loading) {
-    return (
-      <div className="driver-loading">
-        Loading driver workspace...
-      </div>
-    );
+    return <div className="driver-loading">Loading driver workspace...</div>;
   }
 
-  const isCritical =
-    shipment?.status === "ACTION_REQUIRED";
+  const isCritical = shipment?.status === "ACTION_REQUIRED";
 
   return (
     <main className="driver-shell">
+      {showLocationConfirm && (
+        <div
+          className="location-modal-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowLocationConfirm(false);
+            }
+          }}
+        >
+          <section
+            className="location-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="location-modal-title"
+          >
+            <div className="location-modal-icon">
+              <MapPin size={26} />
+            </div>
+
+            <h2 id="location-modal-title">Share your current location?</h2>
+
+            <p>
+              Your location will be shared using GPS with the coordinator so the
+              shipment route can be monitored.
+            </p>
+
+            <div className="location-modal-actions">
+              <button
+                type="button"
+                className="location-cancel-button"
+                onClick={() => setShowLocationConfirm(false)}
+              >
+                No
+              </button>
+
+              <button
+                type="button"
+                className="location-confirm-button"
+                onClick={confirmShareLocation}
+              >
+                Continue
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       <header className="driver-topbar">
         <div className="driver-brand">
           <div className="driver-brand-mark">IO</div>
@@ -255,10 +338,7 @@ export default function DriverDashboard({
             ONLINE
           </span>
 
-          <button
-            className="driver-signout"
-            onClick={onLogout}
-          >
+          <button type="button" className="driver-signout" onClick={onLogout}>
             Sign out
           </button>
         </div>
@@ -269,10 +349,7 @@ export default function DriverDashboard({
           <div>
             <p className="driver-kicker">GOOD MORNING</p>
             <h1>{profile.full_name}</h1>
-            <p>
-              Your assigned vehicle and live instructions appear
-              here.
-            </p>
+            <p>Your assigned vehicle and live instructions appear here.</p>
           </div>
 
           <div className="driver-identity">
@@ -290,10 +367,7 @@ export default function DriverDashboard({
             <div>
               <p className="driver-kicker">ACTION REQUIRED</p>
               <h2>Cold-chain excursion detected</h2>
-              <p>
-                Follow the recovery instruction and keep the
-                container closed.
-              </p>
+              <p>Follow the recovery instruction and keep the container closed.</p>
             </div>
 
             <span className="risk-tag">HIGH RISK</span>
@@ -306,14 +380,8 @@ export default function DriverDashboard({
               <Thermometer size={20} />
             </div>
             <span>Shipment temperature</span>
-            <strong>
-              {shipment?.temperature ?? "--"}°C
-            </strong>
-            <small>
-              {isCritical
-                ? "Above safe range"
-                : "Within safe range"}
-            </small>
+            <strong>{shipment?.temperature ?? "--"}°C</strong>
+            <small>{isCritical ? "Above safe range" : "Within safe range"}</small>
           </article>
 
           <article className="driver-stat-card">
@@ -321,9 +389,7 @@ export default function DriverDashboard({
               <Package size={20} />
             </div>
             <span>Consignment</span>
-            <strong>
-              {shipment?.shipment_number ?? "--"}
-            </strong>
+            <strong>{shipment?.shipment_number ?? "--"}</strong>
             <small>{shipment?.status ?? "No status"}</small>
           </article>
 
@@ -356,14 +422,12 @@ export default function DriverDashboard({
               <Navigation size={21} />
             </div>
 
-            <div className="route-line">
+            <div className="driver-route-line">
               <div className="route-stop">
                 <span className="route-dot origin" />
                 <div>
                   <small>ORIGIN</small>
-                  <strong>
-                    {shipment?.origin ?? "Madurai"}
-                  </strong>
+                  <strong>{shipment?.origin ?? "Madurai"}</strong>
                 </div>
               </div>
 
@@ -376,9 +440,7 @@ export default function DriverDashboard({
                 <span className="route-dot destination" />
                 <div>
                   <small>DESTINATION</small>
-                  <strong>
-                    {shipment?.destination ?? "Chennai"}
-                  </strong>
+                  <strong>{shipment?.destination ?? "Chennai"}</strong>
                 </div>
               </div>
             </div>
@@ -390,6 +452,7 @@ export default function DriverDashboard({
             </div>
 
             <button
+              type="button"
               className="location-button"
               onClick={shareLocation}
             >
@@ -417,16 +480,12 @@ export default function DriverDashboard({
               <div className="weather-reading">
                 <strong>{weather.temperature}°C</strong>
                 <span>Humidity {weather.humidity}%</span>
-                <small>
-                  Based on your shared GPS location
-                </small>
+                <small>Based on your shared GPS location</small>
               </div>
             ) : (
               <div className="weather-empty">
                 <p>Location required</p>
-                <span>
-                  Share your location to load local weather.
-                </span>
+                <span>Share your location to load local weather.</span>
               </div>
             )}
           </article>
@@ -435,14 +494,10 @@ export default function DriverDashboard({
         <section className="recovery-section">
           <div className="section-heading">
             <div>
-              <p className="driver-kicker">
-                COORDINATOR INSTRUCTIONS
-              </p>
+              <p className="driver-kicker">COORDINATOR INSTRUCTIONS</p>
               <h2>Recovery actions</h2>
             </div>
-            <span className="secure-label">
-              Human approved workflow
-            </span>
+            <span className="secure-label">Human approved workflow</span>
           </div>
 
           {recoveryAlert ? (
@@ -463,6 +518,7 @@ export default function DriverDashboard({
 
                 {recoveryAlert.status === "SENT" && (
                   <button
+                    type="button"
                     className="acknowledge-button"
                     onClick={acknowledgeRecovery}
                   >
@@ -483,8 +539,8 @@ export default function DriverDashboard({
               <div>
                 <h3>No new recovery instruction</h3>
                 <p>
-                  You are clear to continue. New coordinator actions
-                  will appear here.
+                  You are clear to continue. New coordinator actions will appear
+                  here.
                 </p>
               </div>
             </article>
@@ -497,10 +553,7 @@ export default function DriverDashboard({
             <div>
               <p className="driver-kicker">DRIVER SAFETY</p>
               <h3>Stop safely before inspecting the reefer.</h3>
-              <p>
-                Never interact with equipment while the vehicle is
-                moving.
-              </p>
+              <p>Never interact with equipment while the vehicle is moving.</p>
             </div>
           </article>
 
@@ -508,12 +561,11 @@ export default function DriverDashboard({
             <div>
               <p className="driver-kicker">NEED HELP?</p>
               <h3>Contact your coordinator</h3>
-              <p>
-                Meera Raghavan is monitoring this shipment.
-              </p>
+              <p>Meera Raghavan is monitoring this shipment.</p>
             </div>
 
             <button
+              type="button"
               className="contact-button"
               onClick={openWhatsApp}
             >

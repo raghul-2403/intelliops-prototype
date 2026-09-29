@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { supabase } from "./lib/supabase";
 
-export default function LoginPage({ onLogin }) {
+export default function LoginPage({
+  onLogin,
+  isEnteringApp,
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -42,14 +45,18 @@ export default function LoginPage({ onLogin }) {
   }
 
   return (
-    <main className="login-page">
+    <main
+  className={`login-page ${
+    isEnteringApp ? "login-leaving" : ""
+  }`}
+>
       <section className="login-layout">
         <div className="login-visual">
           <div className="login-visual-glow" />
 
           <img
             className="login-guardian-image"
-            src="/meera-raghavan.jpg"
+            src="/login.jpeg"
             alt="Cold Chain Guardian operations icon"
           />
 
@@ -127,7 +134,6 @@ export default function LoginPage({ onLogin }) {
           </form>
 
           <div className="demo-logins">
-            <p>Demo access</p>
             <small>
               Coordinator and driver accounts are enabled.
             </small>
